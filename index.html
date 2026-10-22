@@ -24,6 +24,11 @@ h2{font-family:var(--serif);font-weight:400;font-size:clamp(2rem,9vw,2.8rem);lin
 .lead{font-family:var(--serif);font-style:italic;font-size:1.2rem;color:var(--mute);text-align:center;margin-bottom:36px}
 .script{font-family:var(--script);color:var(--gold)}
 
+/* music button */
+#mus{position:fixed;right:14px;bottom:calc(14px + env(safe-area-inset-bottom));z-index:60;width:54px;height:54px;border-radius:50%;
+  background:rgba(46,22,48,.85);border:1px solid rgba(232,197,144,.5);font-size:1.4rem;display:none;place-items:center;
+  box-shadow:0 6px 20px rgba(0,0,0,.4);backdrop-filter:blur(6px)}
+#mus.show{display:grid}
 /* floating petals */
 #petals{position:fixed;inset:0;pointer-events:none;z-index:1;overflow:hidden}
 .petal{position:absolute;top:-30px;width:10px;height:14px;background:var(--rose);border-radius:80% 0 80% 0;opacity:.5;
@@ -112,6 +117,7 @@ h2{font-family:var(--serif);font-weight:400;font-size:clamp(2rem,9vw,2.8rem);lin
 <body class="locked">
 <div id="petals"></div>
 <canvas id="confetti"></canvas>
+<button id="mus" aria-label="Music on or off">🎵</button>
 
 <div id="cover">
   <p class="small">For my Doctor Sahab, my baby</p>
@@ -224,8 +230,65 @@ const EXTS = ['jpg','jpeg','png','webp','JPG','JPEG','PNG','webp','gif'];
   }
 })();
 
+/* birthday music: uses birthday.mp3 / song.mp3 if present in the folder, otherwise a built-in music-box tune */
+const Music = (function(){
+  let ctx, master, file, mode='', playing=false, timer;
+  // [frequency, beats]
+  const N={G4:392,A4:440,B4:493.88,C5:523.25,D5:587.33,E5:659.25,F5:698.46,G5:783.99};
+  const TUNE=[['G4',.75],['G4',.25],['A4',1],['G4',1],['C5',1],['B4',2],
+              ['G4',.75],['G4',.25],['A4',1],['G4',1],['D5',1],['C5',2],
+              ['G4',.75],['G4',.25],['G5',1],['E5',1],['C5',1],['B4',1],['A4',2],
+              ['F5',.75],['F5',.25],['E5',1],['C5',1],['D5',1],['C5',3]];
+  const BEAT=.62;
+  function note(f,t,d){
+    [[1,.5],[2,.15],[3,.06]].forEach(([m,v])=>{
+      const o=ctx.createOscillator(), g=ctx.createGain();
+      o.type='sine'; o.frequency.value=f*m;
+      g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(v,t+.02);
+      g.gain.exponentialRampToValueAtTime(.0001,t+Math.max(d,.5)*1.6);
+      o.connect(g); g.connect(master); o.start(t); o.stop(t+Math.max(d,.5)*1.6+.05);
+    });
+  }
+  function loop(){
+    if(!playing||mode!=='synth') return;
+    let t=ctx.currentTime+.1;
+    TUNE.forEach(([n,b])=>{ note(N[n],t,b*BEAT); t+=b*BEAT; });
+    timer=setTimeout(loop,(t-ctx.currentTime+2)*1000);
+  }
+  function synth(){
+    const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
+    ctx=ctx||new AC(); master=master||ctx.createGain(); master.gain.value=.5; master.connect(ctx.destination);
+    if(ctx.state==='suspended') ctx.resume();
+    mode='synth'; loop();
+  }
+  async function start(){
+    playing=true;
+    for(const name of ['birthday.mp3','song.mp3']){
+      try{
+        file=new Audio(name); file.loop=true; file.volume=.8;
+        await file.play(); mode='file'; return;
+      }catch(e){ file=null; }
+    }
+    if(playing) synth();
+  }
+  function toggle(){
+    if(playing){
+      playing=false; clearTimeout(timer);
+      if(mode==='file'&&file) file.pause(); else if(ctx) ctx.suspend();
+    }else{
+      playing=true;
+      if(mode==='file'&&file) file.play();
+      else if(ctx){ ctx.resume(); loop(); } else start();
+    }
+    return playing;
+  }
+  return {start,toggle};
+})();
+$('#mus').addEventListener('click',e=>{ e.currentTarget.textContent = Music.toggle() ? '🎵' : '🔇'; });
+
 /* open */
 $('#open').addEventListener('click',()=>{
+  Music.start(); $('#mus').classList.add('show');
   $('#cover').classList.add('gone'); document.body.classList.remove('locked');
   setTimeout(()=>burst(60),500);
 });
